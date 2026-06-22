@@ -74,7 +74,7 @@ class Biped2FlatCfg(CassieRoughCfg):
 
     class rewards(CassieRoughCfg.rewards):
         only_positive_rewards = False
-        base_height_target = 0.4
+        base_height_target = 0.6
         soft_dof_pos_limit = 0.95
 
         class scales(CassieRoughCfg.rewards.scales):
