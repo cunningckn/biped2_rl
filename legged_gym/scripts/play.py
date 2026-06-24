@@ -38,6 +38,26 @@ from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Log
 import numpy as np
 import torch
 
+# 直接修改这里的速度指令（不再随机采样）
+CMD_X = 0.8    # 前进速度 [m/s]
+CMD_Y = 0.0    # 横向速度 [m/s]
+CMD_YAW = 0.0  # 偏航角速度 [rad/s]（heading_command=True 时为目标朝向 [rad]）
+
+
+def set_fixed_commands(env, cmd_x, cmd_y, cmd_yaw):
+    """Override random command resampling with fixed velocity commands."""
+    def fixed_resample(env_ids):
+        env.commands[env_ids, 0] = cmd_x
+        env.commands[env_ids, 1] = cmd_y
+        if env.cfg.commands.heading_command:
+            env.commands[env_ids, 3] = cmd_yaw
+        else:
+            env.commands[env_ids, 2] = cmd_yaw
+
+    env._resample_commands = fixed_resample
+    all_env_ids = torch.arange(env.num_envs, device=env.device)
+    fixed_resample(all_env_ids)
+
 
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
@@ -52,6 +72,8 @@ def play(args):
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    set_fixed_commands(env, CMD_X, CMD_Y, CMD_YAW)
+    env.compute_observations()
     obs = env.get_observations()
     # load policy
     train_cfg.runner.resume = True
