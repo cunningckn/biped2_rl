@@ -1,105 +1,189 @@
-# Isaac Gym Environments for Legged Robots #
-This repository provides the environment used to train ANYmal (and other robots) to walk on rough terrain using NVIDIA's Isaac Gym.
-It includes all components needed for sim-to-real transfer: actuator network, friction & mass randomization, noisy observations and random pushes during training.  
+# Biped2 RL — 双足机器人强化学习训练
 
-**Maintainer**: Nikita Rudin  
-**Affiliation**: Robotic Systems Lab, ETH Zurich  
-**Contact**: rudinn@ethz.ch  
+基于 [legged_gym](https://github.com/leggedrobotics/legged_gym) 与 [Isaac Gym](https://developer.nvidia.com/isaac-gym)，在平面地形上训练 **biped2** 双足机器人的行走策略。
+
+**仓库**: https://github.com/cunningckn/biped2_rl
 
 ---
 
-### :bell: Announcement (09.01.2024) ###
+## 机器人概览
 
-With the shift from Isaac Gym to Isaac Sim at NVIDIA, we have migrated all the environments from this work to [Isaac Lab](https://github.com/isaac-sim/IsaacLab). Following this migration, this repository will receive limited updates and support. We encourage all users to migrate to the new framework for their applications.
+| 项目 | 说明 |
+|------|------|
+| 模型 | `resources/robots/biped2/urdf/biped2.urdf` |
+| 自由度 | 10（每腿 5 关节） |
+| 关节链 | HipYaw → HipRoll → HipPitch → KneePitch → AnklePitch |
+| 初始高度 | 0.45 m |
+| 控制方式 | 位置 PD（`action_scale = 0.25`） |
 
-Information about this work's locomotion-related tasks in Isaac Lab is available [here](https://isaac-sim.github.io/IsaacLab/main/source/overview/environments.html#locomotion).
+```
+        base_link
+       /         \
+  Right leg    Left leg
+  (5 DOF)      (5 DOF)
+```
 
 ---
 
-### Useful Links ###
+## 训练任务
 
-Project website: https://leggedrobotics.github.io/legged_gym/   
-Paper: https://arxiv.org/abs/2109.11978
+| Task 名称 | 环境类 | 说明 |
+|-----------|--------|------|
+| `biped2_flat` | `Biped2` | 基础平面行走：速度跟踪 + 单腿支撑 + 低速站直 |
+| `biped2_gait_flat` | `Biped2Gait` | 在基础任务上增加**相位步态奖励**，约束摆动/支撑相足部力与速度 |
 
-### Installation ###
-1. Create a new python virtual env with python 3.6, 3.7 or 3.8 (3.8 recommended)
-2. Install pytorch 1.10 with cuda-11.3:
-    - `pip3 install torch==1.10.0+cu113 torchvision==0.11.1+cu113 torchaudio==0.10.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html`
-3. Install Isaac Gym
-   - Download and install Isaac Gym Preview 3 (Preview 2 will not work!) from https://developer.nvidia.com/isaac-gym
-   - `cd isaacgym/python && pip install -e .`
-   - Try running an example `cd examples && python 1080_balls_of_solitude.py`
-   - For troubleshooting check docs `isaacgym/docs/index.html`)
-4. Install rsl_rl (PPO implementation)
-   - Clone https://github.com/leggedrobotics/rsl_rl
-   -  `cd rsl_rl && git checkout v1.0.2 && pip install -e .` 
-5. Install legged_gym
-    - Clone this repository
-   - `cd legged_gym && pip install -e .`
+日志目录：
 
-### CODE STRUCTURE ###
-1. Each environment is defined by an env file (`legged_robot.py`) and a config file (`legged_robot_config.py`). The config file contains two classes: one containing  all the environment parameters (`LeggedRobotCfg`) and one for the training parameters (`LeggedRobotCfgPPo`).  
-2. Both env and config classes use inheritance.  
-3. Each non-zero reward scale specified in `cfg` will add a function with a corresponding name to the list of elements which will be summed to get the total reward.  
-4. Tasks must be registered using `task_registry.register(name, EnvClass, EnvConfig, TrainConfig)`. This is done in `envs/__init__.py`, but can also be done from outside of this repository.  
+- `logs/flat_biped2/` — 基础行走
+- `logs/flat_biped2_gait/` — 步态约束训练
 
-### Usage ###
-1. Train:  
-  ```python legged_gym/scripts/train.py --task=anymal_c_flat```
-    -  To run on CPU add following arguments: `--sim_device=cpu`, `--rl_device=cpu` (sim on CPU and rl on GPU is possible).
-    -  To run headless (no rendering) add `--headless`.
-    - **Important**: To improve performance, once the training starts press `v` to stop the rendering. You can then enable it later to check the progress.
-    - The trained policy is saved in `issacgym_anymal/logs/<experiment_name>/<date_time>_<run_name>/model_<iteration>.pt`. Where `<experiment_name>` and `<run_name>` are defined in the train config.
-    -  The following command line arguments override the values set in the config files:
-     - --task TASK: Task name.
-     - --resume:   Resume training from a checkpoint
-     - --experiment_name EXPERIMENT_NAME: Name of the experiment to run or load.
-     - --run_name RUN_NAME:  Name of the run.
-     - --load_run LOAD_RUN:   Name of the run to load when resume=True. If -1: will load the last run.
-     - --checkpoint CHECKPOINT:  Saved model checkpoint number. If -1: will load the last checkpoint.
-     - --num_envs NUM_ENVS:  Number of environments to create.
-     - --seed SEED:  Random seed.
-     - --max_iterations MAX_ITERATIONS:  Maximum number of training iterations.
-2. Play a trained policy:  
-```python legged_gym/scripts/play.py --task=anymal_c_flat```
-    - By default, the loaded policy is the last model of the last run of the experiment folder.
-    - Other runs/model iteration can be selected by setting `load_run` and `checkpoint` in the train config.
+---
 
-### Adding a new environment ###
-The base environment `legged_robot` implements a rough terrain locomotion task. The corresponding cfg does not specify a robot asset (URDF/ MJCF) and has no reward scales. 
+## 奖励设计
 
-1. Add a new folder to `envs/` with `'<your_env>_config.py`, which inherit from an existing environment cfgs  
-2. If adding a new robot:
-    - Add the corresponding assets to `resources/`.
-    - In `cfg` set the asset path, define body names, default_joint_positions and PD gains. Specify the desired `train_cfg` and the name of the environment (python class).
-    - In `train_cfg` set `experiment_name` and `run_name`
-3. (If needed) implement your environment in <your_env>.py, inherit from an existing environment, overwrite the desired functions and/or add your reward functions.
-4. Register your env in `isaacgym_anymal/envs/__init__.py`.
-5. Modify/Tune other parameters in your `cfg`, `cfg_train` as needed. To remove a reward set its scale to zero. Do not modify parameters of other envs!
+### 通用（`biped2_flat`）
 
+| 奖励 | 作用 |
+|------|------|
+| `tracking_lin_vel` / `tracking_ang_vel` | 跟踪线速度 / 偏航角速度指令 |
+| `feet_air_time` | 单腿支撑时奖励迈步持续时间（`min` 设计，鼓励交替步态） |
+| `low_speed_upright` | 低速时跟踪默认关节姿态，保持站直 |
+| `no_fly` | 运动时禁止双脚同时离地 |
+| `termination` | 躯干 / 髋部异常接触终止 |
 
-### Troubleshooting ###
-1. If you get the following error: `ImportError: libpython3.8m.so.1.0: cannot open shared object file: No such file or directory`, do: `sudo apt install libpython3.8`. It is also possible that you need to do `export LD_LIBRARY_PATH=/path/to/libpython/directory` / `export LD_LIBRARY_PATH=/path/to/conda/envs/your_env/lib`(for conda user. Replace /path/to/ to the corresponding path.).
+### 步态相位（`biped2_gait_flat` 额外）
 
-### Known Issues ###
-1. The contact forces reported by `net_contact_force_tensor` are unreliable when simulating on GPU with a triangle mesh terrain. A workaround is to use force sensors, but the force are propagated through the sensors of consecutive bodies resulting in an undesirable behaviour. However, for a legged robot it is possible to add sensors to the feet/end effector only and get the expected results. When using the force sensors make sure to exclude gravity from the reported forces with `sensor_options.enable_forward_dynamics_forces`. Example:
+基于 `gait_clock` 生成摆动相 / 支撑相掩码，仅在 `||cmd_xy|| > 0.1` 时生效：
+
+| 奖励 | 相位 | 目标 |
+|------|------|------|
+| `gait_feet_frc_perio` | 摆动相 | 足底力 ≈ 0 |
+| `gait_feet_spd_perio` | 支撑相 | 足底速度 ≈ 0（防滑动） |
+| `gait_feet_frc_support_perio` | 支撑相 | 足底有足够支撑力 |
+
+步态参数见 `legged_gym/envs/biped2/biped2_config.py` 中 `Biped2GaitFlatCfg.rewards.gait`。
+
+---
+
+## 安装
+
+依赖与上游 legged_gym 相同，需提前安装 **Isaac Gym Preview 3** 与 **rsl_rl**。
+
+1. Python 3.8 虚拟环境
+2. PyTorch（与 CUDA 版本匹配，例如 cu113）：
+   ```bash
+   pip3 install torch==1.10.0+cu113 torchvision==0.11.1+cu113 torchaudio==0.10.0+cu113 \
+     -f https://download.pytorch.org/whl/cu113/torch_stable.html
+   ```
+3. Isaac Gym：
+   ```bash
+   cd isaacgym/python && pip install -e .
+   ```
+4. [rsl_rl](https://github.com/leggedrobotics/rsl_rl) v1.0.2：
+   ```bash
+   git clone https://github.com/leggedrobotics/rsl_rl
+   cd rsl_rl && git checkout v1.0.2 && pip install -e .
+   ```
+5. 本仓库：
+   ```bash
+   cd biped2_rl && pip install -e .
+   ```
+
+---
+
+## 使用方法
+
+### 训练
+
+```bash
+cd biped2_rl
+
+# 基础平面行走
+python legged_gym/scripts/train.py --task=biped2_flat
+
+# 步态相位约束训练
+python legged_gym/scripts/train.py --task=biped2_gait_flat
 ```
-    sensor_pose = gymapi.Transform()
-    for name in feet_names:
-        sensor_options = gymapi.ForceSensorProperties()
-        sensor_options.enable_forward_dynamics_forces = False # for example gravity
-        sensor_options.enable_constraint_solver_forces = True # for example contacts
-        sensor_options.use_world_frame = True # report forces in world frame (easier to get vertical components)
-        index = self.gym.find_asset_rigid_body_index(robot_asset, name)
-        self.gym.create_asset_force_sensor(robot_asset, index, sensor_pose, sensor_options)
-    (...)
 
-    sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
-    self.gym.refresh_force_sensor_tensor(self.sim)
-    force_sensor_readings = gymtorch.wrap_tensor(sensor_tensor)
-    self.sensor_forces = force_sensor_readings.view(self.num_envs, 4, 6)[..., :3]
-    (...)
+常用参数：
 
-    self.gym.refresh_force_sensor_tensor(self.sim)
-    contact = self.sensor_forces[:, :, 2] > 1.
+```bash
+# 无渲染（更快）
+python legged_gym/scripts/train.py --task=biped2_gait_flat --headless
+
+# 恢复训练
+python legged_gym/scripts/train.py --task=biped2_gait_flat --resume
+
+# 指定环境数量
+python legged_gym/scripts/train.py --task=biped2_flat --num_envs=2048
 ```
+
+训练开始后按 `v` 可关闭实时渲染以提升速度。策略保存在：
+
+```
+logs/<experiment_name>/<date>_<run_name>/model_<iteration>.pt
+```
+
+### 播放策略
+
+```bash
+python legged_gym/scripts/play.py --task=biped2_gait_flat
+```
+
+在 `play.py` 顶部修改 `CMD_X` / `CMD_Y` / `CMD_YAW` 可固定速度指令进行测试。
+
+### TensorBoard
+
+```bash
+tensorboard --logdir logs/flat_biped2_gait
+```
+
+---
+
+## 代码结构（biped2 相关）
+
+```
+legged_gym/
+├── envs/biped2/
+│   ├── biped2.py          # Biped2 / Biped2Gait 环境及奖励实现
+│   └── biped2_config.py   # 环境参数、奖励权重、步态配置
+├── envs/__init__.py       # 注册 biped2_flat / biped2_gait_flat
+├── scripts/
+│   ├── train.py
+│   └── play.py
+└── resources/robots/biped2/
+    ├── urdf/biped2.urdf
+    └── meshes/
+```
+
+---
+
+## 调参建议
+
+| 现象 | 可尝试 |
+|------|--------|
+| 不迈步 / 交替差 | 增大 `feet_air_time` 权重 |
+| 低速时姿态塌 | 增大 `low_speed_upright` |
+| 步态周期不对 | 调整 `gait.cycle`、`air_ratio_l/r` |
+| 支撑脚滑动 | 增大 `gait_feet_spd_perio` |
+| 摆腿拖地 | 增大 `gait_feet_frc_perio` |
+
+奖励权重均在 `biped2_config.py` 的 `rewards.scales` 中，设为 `0` 可关闭对应项。
+
+---
+
+## 致谢
+
+本项目基于以下开源工作：
+
+- [legged_gym](https://github.com/leggedrobotics/legged_gym) — ETH Zurich / NVIDIA
+- [rsl_rl](https://github.com/leggedrobotics/rsl_rl) — PPO 实现
+- [Isaac Gym](https://developer.nvidia.com/isaac-gym) — NVIDIA
+
+原始论文：[Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning](https://arxiv.org/abs/2109.11978)
+
+---
+
+## License
+
+BSD-3-Clause（与上游 legged_gym 一致）
